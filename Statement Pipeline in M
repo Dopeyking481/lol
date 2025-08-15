@@ -1,0 +1,47 @@
+let
+    // 1️⃣ Load all CSV files from the folder
+    Source = Folder.Files("File Path here"),
+
+    // 2️⃣ Only keep .csv files
+    CsvFiles = Table.SelectRows(Source, each Text.EndsWith([Extension], ".csv")),
+
+    // 3️⃣ Read contents with comma delimiter, no headers
+    Imported = Table.AddColumn(CsvFiles, "Data", each Csv.Document(
+        File.Contents([Folder Path] & [Name]),
+        [Delimiter = ",", Columns = 5, Encoding = 65001, QuoteStyle = QuoteStyle.Csv]
+    )),
+
+    // 4️⃣ Combine all files into one table
+    CombinedRaw = Table.Combine(Imported[Data]),
+
+    // 5️⃣ Only keep rows where Column1 can be read as a date
+    FilteredRows = Table.SelectRows(CombinedRaw, each try Date.From([Column1]) is date otherwise false),
+
+    // 6️⃣ Rename columns to meaningful names
+    Renamed = Table.RenameColumns(FilteredRows, {
+        {"Column1", "Date"},
+        {"Column2", "Description"},
+        {"Column3", "Debit"},
+        {"Column4", "Credit"},
+        {"Column5", "Balance"}
+    }),
+
+    // 7️⃣ Safely convert types
+    Typed = Table.TransformColumns(Renamed, {
+        {"Date", each try Date.From(_) otherwise null, type date},
+        {"Description", each Text.From(_, "en-US"), type text},
+        {"Debit", each try Number.FromText(Text.Replace(_, ",", ""), "en-US") otherwise null, type number},
+        {"Credit", each try Number.FromText(Text.Replace(_, ",", ""), "en-US") otherwise null, type number},
+        {"Balance", each try Number.FromText(Text.Replace(_, ",", ""), "en-US") otherwise null, type number}
+    }),
+
+    // 8️⃣ Add MonthStart based on Date (always first of the month)
+    AddMonth = Table.AddColumn(Typed, "MonthStart", each Date.StartOfMonth([Date]), type date),
+
+    // 9️⃣ Get the latest month actually in the data
+    MaxMonth = List.Max(AddMonth[MonthStart]),
+
+    // 🔟 Keep only rows from the latest month
+    LatestMonth = Table.SelectRows(AddMonth, each [MonthStart] = MaxMonth)
+in
+    LatestMonth
